@@ -1,0 +1,39 @@
+[Unit]
+Description=OpenTelemetry Collector
+Documentation=https://opentelemetry.io/docs/collector/
+Wants=network-online.target
+After=network-online.target
+StartLimitInterval=30
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=otelcol
+Group=otelcol
+ExecStart=/usr/local/bin/otelcol-contrib --config=/etc/otelcol/collector.yaml
+Restart=on-failure
+RestartSec=5
+EnvironmentFile=/etc/otelcol/coralogix.env
+Environment=OTEL_SERVICE_NAME=otel-collector-ubuntu
+Environment=OTEL_SERVICE_VERSION=1.0.0
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/otelcol
+CapabilityBoundingSet=
+
+# Resource limits
+LimitNOFILE=65536
+MemoryMax=2G
+CPUQuota=100%
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=otel-collector
+
+[Install]
+WantedBy=multi-user.target

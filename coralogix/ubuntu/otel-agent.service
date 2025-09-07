@@ -1,0 +1,40 @@
+[Unit]
+Description=OpenTelemetry Agent
+Documentation=https://opentelemetry.io/docs/collector/
+Wants=network-online.target
+After=network-online.target
+StartLimitInterval=30
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=otelcol
+Group=otelcol
+ExecStart=/usr/local/bin/otelcol-contrib --config=/etc/otelcol/agent.yaml
+Restart=on-failure
+RestartSec=5
+EnvironmentFile=/etc/otelcol/coralogix.env
+Environment=OTEL_SERVICE_NAME=otel-agent-ubuntu
+Environment=OTEL_SERVICE_VERSION=1.0.0
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/otelcol
+ReadOnlyPaths=/proc /sys /var/log
+CapabilityBoundingSet=CAP_SYS_PTRACE
+
+# Resource limits
+LimitNOFILE=65536
+MemoryMax=1G
+CPUQuota=50%
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=otel-agent
+
+[Install]
+WantedBy=multi-user.target

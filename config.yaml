@@ -1,0 +1,59 @@
+receivers:
+  # OTLP receiver for receiving telemetry data
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  # Resource detection processor to detect host information
+  resourcedetection:
+    detectors: ["env", "system"]
+    timeout: 2s
+    override: false
+    system:
+      hostname_sources: ["os"]
+  
+  # Batch processor for efficient data handling
+  batch:
+    timeout: 1s
+    send_batch_size: 1024
+
+exporters:
+  # Coralogix exporter
+  coralogix:
+    domain: "eu2.coralogix.com"
+    private_key: "cxtp_eCdbElG68PyArWWeeYAzctmnLtSFZK"
+    application_name: "MacOS-Collector"
+    subsystem_name: "Resource-Detection-Demo"
+    timeout: 30s
+  
+  # Debug exporter for local debugging
+  debug:
+    verbosity: detailed
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [resourcedetection, batch]
+      exporters: [coralogix, debug]
+    metrics:
+      receivers: [otlp]
+      processors: [resourcedetection, batch]
+      exporters: [coralogix, debug]
+    logs:
+      receivers: [otlp]
+      processors: [resourcedetection, batch]
+      exporters: [coralogix, debug]
+  
+  # Enable debug logging
+  telemetry:
+    logs:
+      level: debug
+      development: true
+      encoding: console
+      initial_fields:
+        component: "otelcontribcol"

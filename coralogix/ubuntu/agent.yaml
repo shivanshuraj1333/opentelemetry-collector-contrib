@@ -1,0 +1,296 @@
+receivers:
+  # OTLP receiver for receiving telemetry data from applications
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+        max_recv_msg_size_mib: 20
+      http:
+        endpoint: 0.0.0.0:4318
+
+  # Host metrics receiver for comprehensive host monitoring
+  hostmetrics:
+    collection_interval: 30s
+    initial_delay: 1s
+    scrapers:
+      # CPU metrics
+      cpu:
+        metrics:
+          system.cpu.utilization:
+            enabled: true
+          system.cpu.time:
+            enabled: true
+      # Memory metrics
+      memory:
+        metrics:
+          system.memory.utilization:
+            enabled: true
+          system.memory.usage:
+            enabled: true
+      # Disk I/O metrics
+      disk:
+        metrics:
+          system.disk.io:
+            enabled: true
+          system.disk.io_time:
+            enabled: true
+      # Filesystem metrics
+      filesystem:
+        metrics:
+          system.filesystem.utilization:
+            enabled: true
+          system.filesystem.usage:
+            enabled: true
+        exclude_fs_types:
+          fs_types:
+            - autofs
+            - binfmt_misc
+            - bpf
+            - cgroup2
+            - configfs
+            - debugfs
+            - devpts
+            - devtmpfs
+            - fusectl
+            - hugetlbfs
+            - iso9660
+            - mqueue
+            - nsfs
+            - overlay
+            - proc
+            - procfs
+            - pstore
+            - rpc_pipefs
+            - securityfs
+            - selinuxfs
+            - squashfs
+            - sysfs
+            - tracefs
+          match_type: strict
+        exclude_mount_points:
+          match_type: regexp
+          mount_points:
+            - /dev/*
+            - /proc/*
+            - /sys/*
+            - /snap/*
+      # Network metrics
+      network:
+        metrics:
+          system.network.io:
+            enabled: true
+          system.network.packets:
+            enabled: true
+      # Load metrics
+      load:
+        metrics:
+          system.cpu.load_average.1m:
+            enabled: true
+          system.cpu.load_average.5m:
+            enabled: true
+          system.cpu.load_average.15m:
+            enabled: true
+      # Paging/Swap metrics
+      paging:
+        metrics:
+          system.paging.utilization:
+            enabled: true
+          system.paging.usage:
+            enabled: true
+      # Process metrics
+      processes:
+        metrics:
+          system.processes.count:
+            enabled: true
+      # System uptime
+      uptime:
+        metrics:
+          system.uptime:
+            enabled: true
+
+  # File log receiver for system logs
+  filelog:
+    include:
+      - /var/log/syslog
+      - /var/log/auth.log
+      - /var/log/kern.log
+      - /var/log/dpkg.log
+      - /var/log/apt/*.log
+      - /var/log/alternatives.log
+      - /var/log/dmesg
+    include_file_path: true
+    include_file_name: true
+    start_at: end
+    operators:
+      # Parse syslog format
+      - type: regex_parser
+        id: syslog_parser
+        regex: '^(?P<timestamp>\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2})\s+(?P<hostname>\S+)\s+(?P<service>\S+)(?:\[(?P<pid>\d+)\])?:\s+(?P<message>.*)$'
+        timestamp:
+          parse_from: attributes.timestamp
+          layout: 'Jan 02 15:04:05'
+        severity:
+          parse_from: attributes.service
+          mapping:
+            error: ERROR
+            warning: WARN
+            info: INFO
+            debug: DEBUG
+        output: extract_attributes_from_filename
+      # Extract additional attributes from file path
+      - type: regex_parser
+        id: extract_attributes_from_filename
+        regex: '^/var/log/(?P<log_type>[^/]+)(?:/(?P<log_file>[^/]+))?\.log$'
+        parse_from: attributes["log.file.path"]
+        output: add_log_type
+      # Add log type attribute
+      - type: add
+        id: add_log_type
+        field: attributes.log_type
+        value: system
+      # Move parsed fields to body
+      - type: move
+        from: attributes.message
+        to: body
+
+  # Prometheus receiver for self-monitoring
+  prometheus:
+    config:
+      scrape_configs:
+        - job_name: 'otel-agent'
+          scrape_interval: 30s
+          static_configs:
+            - targets: ['localhost:8888']
+
+processors:
+  # Resource detection processor
+  resourcedetection:
+    detectors: ["env", "system"]
+    timeout: 2s
+    override: false
+    system:
+      hostname_sources: ["os"]
+      resource_attributes:
+        host.id:
+          enabled: true
+        host.name:
+          enabled: true
+        host.type:
+          enabled: true
+        os.type:
+          enabled: true
+        os.description:
+          enabled: true
+
+  # Resource processor to add metadata
+  resource:
+    attributes:
+      - action: upsert
+        key: service.name
+        value: otel-agent-ubuntu
+      - action: upsert
+        key: service.version
+        value: "1.0.0"
+      - action: upsert
+        key: deployment.environment
+        value: production
+
+  # Memory limiter
+  memory_limiter:
+    check_interval: 5s
+    limit_percentage: 80
+    spike_limit_percentage: 25
+
+  # Batch processor
+  batch:
+    timeout: 1s
+    send_batch_size: 1024
+    send_batch_max_size: 2048
+
+  # Transform processor for logs
+  transform:
+    log_statements:
+      - context: log
+        statements:
+          - set(attributes["log.source"], "system") where attributes["log_type"] == "system"
+          - set(attributes["host.name"], resource.attributes["host.name"])
+          - set(attributes["service.name"], "otel-agent-ubuntu")
+
+exporters:
+  # Coralogix exporter
+  coralogix:
+    domain: ${env:CORALOGIX_DOMAIN}
+    private_key: ${env:CORALOGIX_PRIVATE_KEY}
+    application_name: ${env:CORALOGIX_APP_NAME:-ubuntu-host}
+    subsystem_name: ${env:CORALOGIX_SUBSYSTEM:-system}
+    timeout: 30s
+    logs:
+      headers:
+        X-Coralogix-Distribution: otel-agent-ubuntu/1.0.0
+    metrics:
+      headers:
+        X-Coralogix-Distribution: otel-agent-ubuntu/1.0.0
+    traces:
+      headers:
+        X-Coralogix-Distribution: otel-agent-ubuntu/1.0.0
+
+  # Debug exporter for troubleshooting
+  debug:
+    verbosity: normal
+    sampling_initial: 5
+    sampling_thereafter: 200
+
+extensions:
+  # Health check extension
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+  # ZPages extension for debugging
+  zpages:
+    endpoint: 0.0.0.0:55679
+
+  # Pprof extension for profiling
+  pprof:
+    endpoint: 0.0.0.0:1777
+
+  # File storage extension for persistence
+  file_storage:
+    directory: /var/lib/otelcol
+
+service:
+  extensions: [health_check, zpages, pprof, file_storage]
+  
+  pipelines:
+    # Metrics pipeline
+    metrics:
+      receivers: [hostmetrics, prometheus]
+      processors: [resourcedetection, resource, memory_limiter, batch]
+      exporters: [coralogix, debug]
+
+    # Logs pipeline
+    logs:
+      receivers: [filelog]
+      processors: [resourcedetection, resource, memory_limiter, transform, batch]
+      exporters: [coralogix, debug]
+
+    # Traces pipeline (for OTLP traces)
+    traces:
+      receivers: [otlp]
+      processors: [resourcedetection, resource, memory_limiter, batch]
+      exporters: [coralogix, debug]
+
+  # Telemetry configuration
+  telemetry:
+    logs:
+      level: info
+      encoding: json
+    metrics:
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: 0.0.0.0
+                port: 8888
+    resource:
+      service.name: otel-agent-ubuntu
+      service.version: "1.0.0"
