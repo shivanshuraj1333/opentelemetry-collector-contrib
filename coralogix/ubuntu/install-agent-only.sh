@@ -12,7 +12,7 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 # Configuration
-OTEL_VERSION="0.131.1"
+OTEL_VERSION="0.133.0"
 OTEL_USER="otelcol"
 OTEL_GROUP="otelcol"
 OTEL_HOME="/var/lib/otelcol"
